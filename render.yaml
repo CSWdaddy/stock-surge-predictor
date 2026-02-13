@@ -1,34 +1,15 @@
 services:
-  # Backend API
   - type: web
-    name: stock-predictor-api
+    name: stock-surge-predictor
     runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: |
+      pip install -r backend/requirements.txt &&
+      cd frontend && npm install && npm run build &&
+      rm -rf ../backend/static && cp -r dist ../backend/static
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
-      - key: NEWSAPI_KEY
-        value: ""
-    plan: free
-
-  # Frontend Static Site
-  - type: web
-    name: stock-predictor-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: VITE_API_URL
-        value: https://stock-predictor-api.onrender.com
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: no-cache
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+      - key: NODE_VERSION
+        value: "20.11.0"
     plan: free
