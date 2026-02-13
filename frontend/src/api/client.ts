@@ -80,7 +80,7 @@ export interface PredictionsResponse {
 }
 
 export async function fetchPredictions(
-  group: Group = "all",
+  group: Group = "sp500",
   limit = 200
 ): Promise<PredictionsResponse> {
   const resp = await api.get<PredictionsResponse>("/api/predictions", {
@@ -97,7 +97,7 @@ export async function fetchStockAnalysis(
 }
 
 export async function refreshPredictions(
-  group: Group = "all"
+  group: Group = "sp500"
 ): Promise<PredictionsResponse> {
   const resp = await api.get<PredictionsResponse>("/api/refresh", {
     params: { group, workers: 8 },

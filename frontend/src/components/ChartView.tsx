@@ -76,7 +76,7 @@ export default function ChartView({ data, ticker }: ChartViewProps) {
               borderRadius: 6,
               color: "#fff",
             }}
-            formatter={(value: number) => [`${value}M`, "Volume"]}
+            formatter={(value) => [`${value}M`, "Volume"]}
           />
           <Bar dataKey="vol" fill="#4ade80" opacity={0.6} />
         </BarChart>
