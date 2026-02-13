@@ -66,21 +66,6 @@ def _make_stats(results: List[dict]) -> dict:
     }
 
 
-@app.get("/")
-def root():
-    return {
-        "message": "US Stock Surge Predictor API",
-        "disclaimer": "This tool is for educational/reference purposes only. NOT investment advice.",
-        "groups": list(VALID_GROUPS),
-        "endpoints": {
-            "/api/predictions?group=all": "GET - Surge predictions (params: limit, min_score, group)",
-            "/api/stock/{ticker}": "GET - Single stock analysis",
-            "/api/refresh?group=all": "GET - Rescan stocks (params: group, workers)",
-            "/api/train": "GET - Train ML model",
-        },
-    }
-
-
 @app.get("/api/predictions")
 def get_predictions(
     limit: int = Query(default=200, ge=1, le=500),
