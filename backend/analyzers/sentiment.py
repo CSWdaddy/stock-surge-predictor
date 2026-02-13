@@ -242,42 +242,61 @@ def analyze_reddit_sentiment(ticker: str) -> dict:
 
 
 def get_combined_sentiment(ticker: str) -> dict:
-    """Combine all sentiment sources with weighted scoring."""
+    """Combine all available sentiment sources.
 
-    # Try multiple news sources, use the one with most data
+    Uses multiple news sources (yfinance, Finviz, NewsAPI).
+    Social APIs (StockTwits, Reddit) are attempted but often blocked;
+    sentiment works fine with news alone.
+    """
+
+    # Try multiple news sources, use the best two
     yf_news = analyze_yfinance_news(ticker)
     finviz_news = analyze_finviz_news(ticker)
     newsapi_news = analyze_newsapi(ticker)
 
-    # Pick the news source with the most headlines
-    news_sources = [yf_news, finviz_news, newsapi_news]
-    news = max(news_sources, key=lambda s: s["headline_count"])
+    news_sources = sorted(
+        [yf_news, finviz_news, newsapi_news],
+        key=lambda s: s["headline_count"],
+        reverse=True,
+    )
+    primary_news = news_sources[0]
+    secondary_news = news_sources[1]
 
-    # Social: try both StockTwits and Reddit
-    stocktwits = analyze_stocktwits(ticker)
-    reddit = analyze_reddit_sentiment(ticker)
-
-    # Pick the social source with more mentions
-    social = stocktwits if stocktwits.get("mention_count", 0) >= reddit.get("mention_count", 0) else reddit
-
-    # Weighted combination
-    has_news = news["headline_count"] > 0
-    has_social = social.get("mention_count", 0) > 0
-
-    if has_news and has_social:
-        combined_score = news["score"] * 0.55 + social["score"] * 0.45
-    elif has_news:
-        combined_score = news["score"]
-    elif has_social:
-        combined_score = social["score"]
+    # Blend primary + secondary news if both have data
+    if primary_news["headline_count"] > 0 and secondary_news["headline_count"] > 0:
+        news_score = primary_news["score"] * 0.65 + secondary_news["score"] * 0.35
+    elif primary_news["headline_count"] > 0:
+        news_score = primary_news["score"]
     else:
-        combined_score = 50  # neutral fallback
+        news_score = 50
+
+    # Social APIs (best-effort, often blocked by Cloudflare)
+    social = {**EMPTY_SOCIAL}
+    try:
+        stocktwits = analyze_stocktwits(ticker)
+        if stocktwits.get("mention_count", 0) > 0:
+            social = stocktwits
+    except Exception:
+        pass
+
+    if social.get("mention_count", 0) == 0:
+        try:
+            reddit = analyze_reddit_sentiment(ticker)
+            if reddit.get("mention_count", 0) > 0:
+                social = reddit
+        except Exception:
+            pass
+
+    # Final combination
+    has_social = social.get("mention_count", 0) > 0
+    if has_social:
+        combined_score = news_score * 0.6 + social["score"] * 0.4
+    else:
+        combined_score = news_score
 
     return {
         "score": round(combined_score, 1),
-        "news": news,
+        "news": primary_news,
+        "news_secondary": secondary_news if secondary_news["headline_count"] > 0 else None,
         "social": social,
-        # Keep reddit/stocktwits detail for the frontend
-        "reddit": reddit,
-        "stocktwits": stocktwits,
     }

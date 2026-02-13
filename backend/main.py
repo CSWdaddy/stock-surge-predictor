@@ -9,7 +9,7 @@ import time
 from db.database import init_db, save_prediction, get_latest_predictions
 from data.screener import get_tickers_by_group
 from analyzers.scorer import score_stock
-from models.predictor import predict_surge, train_model
+from models.predictor import predict_surge, train_model, train_model_background, is_model_trained
 
 # Per-group cache: {"all": [...], "sp500": [...], "russell": [...]}
 _predictions_cache: Dict[str, List[dict]] = {}
@@ -22,6 +22,9 @@ VALID_GROUPS = ("all", "sp500", "russell")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Auto-train ML model in background if not yet trained
+    if not is_model_trained():
+        train_model_background()
     yield
 
 

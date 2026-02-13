@@ -104,40 +104,42 @@ export default function StockCard({ stock, defaultExpanded = false }: StockCardP
 
               <h4 style={{ color: "#fff", margin: "16px 0 8px" }}>Sentiment</h4>
               <div style={{ fontSize: "0.8rem", color: "#ccc" }}>
-                <div>
-                  News: {stock.sentiment_detail?.news?.headline_count ?? 0} articles
-                  ({stock.sentiment_detail?.news?.source ?? "none"})
-                  {stock.sentiment_detail?.news?.avg_sentiment != null &&
-                    ` | avg: ${stock.sentiment_detail.news.avg_sentiment.toFixed(3)}`}
-                </div>
-                <div>
-                  Social: {(stock.sentiment_detail as any)?.social?.mention_count ??
-                    (stock.sentiment_detail as any)?.stocktwits?.mention_count ?? 0} mentions
-                  ({(stock.sentiment_detail as any)?.social?.source ?? "none"})
-                  {(stock.sentiment_detail as any)?.stocktwits?.bullish != null && (
-                    <span style={{ color: "#4ade80", marginLeft: 4 }}>
-                      {(stock.sentiment_detail as any).stocktwits.bullish} bullish
-                    </span>
-                  )}
-                  {(stock.sentiment_detail as any)?.stocktwits?.bearish != null && (
-                    <span style={{ color: "#f87171", marginLeft: 4 }}>
-                      {(stock.sentiment_detail as any).stocktwits.bearish} bearish
-                    </span>
-                  )}
-                </div>
-                {stock.sentiment_detail?.news?.headlines?.slice(0, 3).map((h, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      color: "#888",
-                      fontSize: "0.7rem",
-                      marginTop: 4,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    "{h}"
-                  </div>
-                ))}
+                {(() => {
+                  const sd = stock.sentiment_detail as any;
+                  const news = sd?.news;
+                  const social = sd?.social;
+                  const hasSocial = social && social.mention_count > 0;
+                  return (
+                    <>
+                      <div>
+                        News: {news?.headline_count ?? 0} articles
+                        <span style={{ color: "#666" }}> via {news?.source ?? "none"}</span>
+                        {news?.avg_sentiment != null && (
+                          <span style={{ color: news.avg_sentiment > 0 ? "#4ade80" : news.avg_sentiment < 0 ? "#f87171" : "#888", marginLeft: 6 }}>
+                            sentiment: {news.avg_sentiment > 0 ? "+" : ""}{news.avg_sentiment.toFixed(3)}
+                          </span>
+                        )}
+                      </div>
+                      {hasSocial && (
+                        <div style={{ marginTop: 4 }}>
+                          Social: {social.mention_count} mentions
+                          <span style={{ color: "#666" }}> via {social.source}</span>
+                          {social.bullish != null && (
+                            <span style={{ color: "#4ade80", marginLeft: 6 }}>{social.bullish} bullish</span>
+                          )}
+                          {social.bearish != null && (
+                            <span style={{ color: "#f87171", marginLeft: 6 }}>{social.bearish} bearish</span>
+                          )}
+                        </div>
+                      )}
+                      {news?.headlines?.slice(0, 3).map((h: string, i: number) => (
+                        <div key={i} style={{ color: "#888", fontSize: "0.7rem", marginTop: 4, fontStyle: "italic" }}>
+                          "{h}"
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
