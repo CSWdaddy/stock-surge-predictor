@@ -4,8 +4,10 @@ const API_BASE = "http://localhost:8000";
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 180000, // 3 min timeout for full scan
+  timeout: 300000, // 5 min for large group scans
 });
+
+export type Group = "sp500" | "russell";
 
 export interface Signal {
   type: "bullish" | "bearish" | "neutral";
@@ -69,6 +71,7 @@ export interface ScanInfo {
 
 export interface PredictionsResponse {
   disclaimer: string;
+  group: string;
   predictions: StockPrediction[];
   total_analyzed?: number;
   stats?: Stats;
@@ -77,10 +80,11 @@ export interface PredictionsResponse {
 }
 
 export async function fetchPredictions(
+  group: Group = "all",
   limit = 200
 ): Promise<PredictionsResponse> {
   const resp = await api.get<PredictionsResponse>("/api/predictions", {
-    params: { limit },
+    params: { group, limit },
   });
   return resp.data;
 }
@@ -92,7 +96,11 @@ export async function fetchStockAnalysis(
   return resp.data;
 }
 
-export async function refreshPredictions(): Promise<PredictionsResponse> {
-  const resp = await api.get<PredictionsResponse>("/api/refresh?workers=8");
+export async function refreshPredictions(
+  group: Group = "all"
+): Promise<PredictionsResponse> {
+  const resp = await api.get<PredictionsResponse>("/api/refresh", {
+    params: { group, workers: 8 },
+  });
   return resp.data;
 }

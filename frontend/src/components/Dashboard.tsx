@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { StockPrediction, Stats, ScanInfo } from "../api/client";
+import type { StockPrediction, Stats, ScanInfo, Group } from "../api/client";
 import {
   fetchPredictions,
   refreshPredictions,
@@ -7,15 +7,38 @@ import {
 } from "../api/client";
 import StockCard from "./StockCard";
 
+const TABS: { key: Group; label: string }[] = [
+  { key: "sp500", label: "S&P 500 Top 100" },
+  { key: "russell", label: "Russell 2000 Top 100" },
+];
+
+interface TabData {
+  predictions: StockPrediction[];
+  stats: Stats | null;
+  scanInfo: ScanInfo | null;
+  totalAnalyzed: number;
+  lastUpdate: string;
+  loaded: boolean;
+}
+
+const emptyTabData = (): TabData => ({
+  predictions: [],
+  stats: null,
+  scanInfo: null,
+  totalAnalyzed: 0,
+  lastUpdate: "",
+  loaded: false,
+});
+
 export default function Dashboard() {
-  const [predictions, setPredictions] = useState<StockPrediction[]>([]);
+  const [activeTab, setActiveTab] = useState<Group>("sp500");
+  const [tabData, setTabData] = useState<Record<Group, TabData>>({
+    sp500: emptyTabData(),
+    russell: emptyTabData(),
+  });
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<string>("");
   const [error, setError] = useState("");
-  const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [totalAnalyzed, setTotalAnalyzed] = useState(0);
 
   // Ticker search
   const [searchTicker, setSearchTicker] = useState("");
@@ -23,34 +46,52 @@ export default function Dashboard() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  const loadPredictions = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await fetchPredictions(200);
-      setPredictions(data.predictions || []);
-      setTotalAnalyzed(data.total_analyzed || data.predictions?.length || 0);
-      if (data.stats) setStats(data.stats);
-      setLastUpdate(new Date().toLocaleTimeString());
-    } catch {
-      setError("Failed to load predictions. Is the backend running?");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const current = tabData[activeTab];
+
+  const loadPredictions = useCallback(
+    async (group: Group) => {
+      setLoading(true);
+      setError("");
+      try {
+        const data = await fetchPredictions(group, 200);
+        setTabData((prev) => ({
+          ...prev,
+          [group]: {
+            predictions: data.predictions || [],
+            stats: data.stats || null,
+            scanInfo: prev[group].scanInfo,
+            totalAnalyzed: data.total_analyzed || data.predictions?.length || 0,
+            lastUpdate: new Date().toLocaleTimeString(),
+            loaded: true,
+          },
+        }));
+      } catch {
+        if (!tabData[group].loaded) {
+          // No cached data — not an error, just hasn't been refreshed yet
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [tabData]
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
     setError("");
     try {
-      const data = await refreshPredictions();
-      setPredictions(data.predictions || []);
-      if (data.scan_info) {
-        setScanInfo(data.scan_info);
-        setTotalAnalyzed(data.scan_info.analyzed);
-      }
-      if (data.stats) setStats(data.stats);
-      setLastUpdate(new Date().toLocaleTimeString());
+      const data = await refreshPredictions(activeTab);
+      setTabData((prev) => ({
+        ...prev,
+        [activeTab]: {
+          predictions: data.predictions || [],
+          stats: data.stats || null,
+          scanInfo: data.scan_info || null,
+          totalAnalyzed: data.scan_info?.analyzed || data.predictions?.length || 0,
+          lastUpdate: new Date().toLocaleTimeString(),
+          loaded: true,
+        },
+      }));
     } catch {
       setError("Failed to refresh. This may take a while for many stocks.");
     } finally {
@@ -82,18 +123,22 @@ export default function Dashboard() {
     setSearchError("");
   };
 
+  // Load data when tab changes
   useEffect(() => {
-    loadPredictions();
-    const interval = setInterval(loadPredictions, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [loadPredictions]);
+    loadPredictions(activeTab);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compute stats from predictions if backend didn't send them
-  const displayStats: Stats = stats || {
-    strong: predictions.filter((p) => p.total_score >= 70).length,
-    moderate: predictions.filter((p) => p.total_score >= 60 && p.total_score < 70).length,
-    weak: predictions.filter((p) => p.total_score < 60).length,
-    top_score: predictions[0]?.total_score || 0,
+  // Auto-refresh active tab every 5 min
+  useEffect(() => {
+    const interval = setInterval(() => loadPredictions(activeTab), 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const displayStats: Stats = current.stats || {
+    strong: current.predictions.filter((p) => p.total_score >= 70).length,
+    moderate: current.predictions.filter((p) => p.total_score >= 60 && p.total_score < 70).length,
+    weak: current.predictions.filter((p) => p.total_score < 60).length,
+    top_score: current.predictions[0]?.total_score || 0,
   };
 
   return (
@@ -140,9 +185,9 @@ export default function Dashboard() {
           >
             {refreshing ? "Scanning stocks..." : "Refresh Data"}
           </button>
-          {lastUpdate && (
+          {current.lastUpdate && (
             <div style={{ color: "#666", fontSize: "0.7rem", marginTop: 4 }}>
-              Last update: {lastUpdate}
+              Last update: {current.lastUpdate}
             </div>
           )}
         </div>
@@ -165,14 +210,7 @@ export default function Dashboard() {
       </div>
 
       {/* Ticker Search */}
-      <form
-        onSubmit={handleSearch}
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
+      <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <input
           type="text"
           value={searchTicker}
@@ -260,6 +298,55 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 0,
+          marginBottom: 16,
+          borderBottom: "2px solid #2a2a3e",
+        }}
+      >
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          const count = tabData[tab.key].predictions.length;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom: isActive ? "2px solid #60a5fa" : "2px solid transparent",
+                padding: "10px 20px",
+                color: isActive ? "#60a5fa" : "#888",
+                fontSize: "0.85rem",
+                fontWeight: isActive ? 700 : 500,
+                cursor: "pointer",
+                marginBottom: -2,
+                transition: "all 0.2s",
+              }}
+            >
+              {tab.label}
+              {count > 0 && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    background: isActive ? "#60a5fa22" : "#333",
+                    color: isActive ? "#60a5fa" : "#666",
+                    padding: "1px 6px",
+                    borderRadius: 10,
+                    fontSize: "0.7rem",
+                  }}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {error && (
         <div
           style={{
@@ -277,12 +364,12 @@ export default function Dashboard() {
       )}
 
       {/* Summary Stats */}
-      {(predictions.length > 0 || stats) && (
+      {current.predictions.length > 0 && (
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={{ background: "#1e1e2e", borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 100 }}>
             <div style={{ color: "#888", fontSize: "0.7rem" }}>Analyzed</div>
             <div style={{ color: "#fff", fontSize: "1.3rem", fontWeight: 700 }}>
-              {totalAnalyzed || predictions.length}
+              {current.totalAnalyzed || current.predictions.length}
             </div>
           </div>
           <div style={{ background: "#1e1e2e", borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 100 }}>
@@ -307,7 +394,7 @@ export default function Dashboard() {
       )}
 
       {/* Scan Sources */}
-      {scanInfo && (
+      {current.scanInfo && (
         <div
           style={{
             background: "#1e1e2e",
@@ -319,11 +406,11 @@ export default function Dashboard() {
           }}
         >
           <div style={{ marginBottom: 4, color: "#aaa" }}>
-            Scanned {scanInfo.analyzed} stocks in {scanInfo.elapsed_seconds}s
-            {scanInfo.failed > 0 && ` (${scanInfo.failed} failed)`}
+            Scanned {current.scanInfo.analyzed} stocks in {current.scanInfo.elapsed_seconds}s
+            {current.scanInfo.failed > 0 && ` (${current.scanInfo.failed} failed)`}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(scanInfo.sources).map(([src, count]) => (
+            {Object.entries(current.scanInfo.sources).map(([src, count]) => (
               <span
                 key={src}
                 style={{
@@ -341,32 +428,35 @@ export default function Dashboard() {
       )}
 
       {/* Loading */}
-      {loading && predictions.length === 0 && (
+      {loading && current.predictions.length === 0 && !current.loaded && (
         <div style={{ textAlign: "center", padding: 40, color: "#888" }}>
           Loading predictions...
         </div>
       )}
 
       {/* No data */}
-      {!loading && predictions.length === 0 && (
+      {!loading && current.predictions.length === 0 && (
         <div style={{ textAlign: "center", padding: 40, color: "#888" }}>
-          <p>No predictions yet.</p>
           <p>
-            Click <strong>Refresh Data</strong> to scan stocks and generate
-            predictions, or search a ticker above.
+            No predictions for{" "}
+            <strong>{TABS.find((t) => t.key === activeTab)?.label}</strong> yet.
+          </p>
+          <p>
+            Click <strong>Refresh Data</strong> to scan and analyze stocks.
           </p>
         </div>
       )}
 
       {/* Predictions heading */}
-      {predictions.length > 0 && (
+      {current.predictions.length > 0 && (
         <div style={{ color: "#aaa", fontSize: "0.8rem", marginBottom: 8 }}>
-          Showing top {predictions.length} of {totalAnalyzed || predictions.length} stocks
+          Showing {current.predictions.length} of{" "}
+          {current.totalAnalyzed || current.predictions.length} stocks
         </div>
       )}
 
       {/* Stock Cards */}
-      {predictions.map((stock) => (
+      {current.predictions.map((stock) => (
         <StockCard key={stock.ticker} stock={stock} />
       ))}
     </div>

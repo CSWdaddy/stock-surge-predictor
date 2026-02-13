@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -7,14 +7,16 @@ import threading
 import time
 
 from db.database import init_db, save_prediction, get_latest_predictions
-from data.screener import get_candidate_tickers
+from data.screener import get_tickers_by_group
 from analyzers.scorer import score_stock
 from models.predictor import predict_surge, train_model
 
-# Cache for latest predictions
-_predictions_cache: List[dict] = []
+# Per-group cache: {"all": [...], "sp500": [...], "russell": [...]}
+_predictions_cache: Dict[str, List[dict]] = {}
 _cache_lock = threading.Lock()
-_last_refresh_info: dict = {}
+_last_refresh_info: Dict[str, dict] = {}
+
+VALID_GROUPS = ("all", "sp500", "russell")
 
 
 @asynccontextmanager
@@ -49,55 +51,58 @@ def _analyze_single_stock(ticker: str) -> dict:
         return None
 
 
+def _make_stats(results: List[dict]) -> dict:
+    return {
+        "strong": sum(1 for r in results if r["total_score"] >= 70),
+        "moderate": sum(1 for r in results if 60 <= r["total_score"] < 70),
+        "weak": sum(1 for r in results if r["total_score"] < 60),
+        "top_score": round(results[0]["total_score"], 1) if results else 0,
+    }
+
+
 @app.get("/")
 def root():
     return {
         "message": "US Stock Surge Predictor API",
         "disclaimer": "This tool is for educational/reference purposes only. NOT investment advice.",
+        "groups": list(VALID_GROUPS),
         "endpoints": {
-            "/api/predictions": "GET - Surge predictions (params: limit, min_score)",
+            "/api/predictions?group=all": "GET - Surge predictions (params: limit, min_score, group)",
             "/api/stock/{ticker}": "GET - Single stock analysis",
-            "/api/refresh": "GET - Rescan all stocks (params: max_stocks, workers)",
+            "/api/refresh?group=all": "GET - Rescan stocks (params: group, workers)",
             "/api/train": "GET - Train ML model",
-            "/api/screener-info": "GET - See screening sources and counts",
         },
     }
 
 
 @app.get("/api/predictions")
 def get_predictions(
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=200, ge=1, le=500),
     min_score: float = Query(default=0, ge=0, le=100),
+    group: str = Query(default="all"),
 ):
     """Get the latest surge predictions sorted by score."""
+    if group not in VALID_GROUPS:
+        group = "all"
+
     with _cache_lock:
-        if _predictions_cache:
-            all_preds = _predictions_cache
-            filtered = [p for p in all_preds if p["total_score"] >= min_score]
+        cached = _predictions_cache.get(group)
+        if cached:
+            filtered = [p for p in cached if p["total_score"] >= min_score]
             return {
                 "disclaimer": "For educational purposes only. NOT investment advice.",
-                "total_analyzed": len(all_preds),
+                "group": group,
+                "total_analyzed": len(cached),
                 "showing": min(limit, len(filtered)),
-                "stats": {
-                    "strong": sum(1 for p in all_preds if p["total_score"] >= 70),
-                    "moderate": sum(1 for p in all_preds if 60 <= p["total_score"] < 70),
-                    "weak": sum(1 for p in all_preds if p["total_score"] < 60),
-                    "top_score": round(all_preds[0]["total_score"], 1) if all_preds else 0,
-                },
+                "stats": _make_stats(cached),
                 "predictions": filtered[:limit],
             }
 
-    db_predictions = get_latest_predictions(limit)
-    if db_predictions:
-        return {
-            "disclaimer": "For educational purposes only. NOT investment advice.",
-            "predictions": db_predictions,
-        }
-
     return {
         "disclaimer": "For educational purposes only. NOT investment advice.",
+        "group": group,
         "predictions": [],
-        "message": "No predictions yet. Call /api/refresh to generate predictions.",
+        "message": f"No predictions for '{group}' yet. Call /api/refresh?group={group} to generate.",
     }
 
 
@@ -117,19 +122,17 @@ def get_stock_analysis(ticker: str):
 
 @app.get("/api/refresh")
 def refresh_predictions(
-    max_stocks: int = Query(default=0, ge=0, le=500, description="0 = analyze all candidates"),
-    workers: int = Query(default=5, ge=1, le=20, description="Parallel worker threads"),
+    group: str = Query(default="all"),
+    workers: int = Query(default=8, ge=1, le=20),
 ):
-    """Refresh predictions by scanning candidate stocks in parallel."""
-    global _predictions_cache, _last_refresh_info
+    """Refresh predictions for a specific group."""
+    if group not in VALID_GROUPS:
+        group = "all"
 
     start_time = time.time()
 
-    candidates, sources = get_candidate_tickers()
+    candidates, sources = get_tickers_by_group(group)
     total_candidates = len(candidates)
-
-    if max_stocks > 0:
-        candidates = candidates[:max_stocks]
 
     # Parallel analysis
     results = []
@@ -169,8 +172,8 @@ def refresh_predictions(
     elapsed = round(time.time() - start_time, 1)
 
     with _cache_lock:
-        _predictions_cache = results
-        _last_refresh_info = {
+        _predictions_cache[group] = results
+        _last_refresh_info[group] = {
             "total_candidates": total_candidates,
             "analyzed": len(results),
             "failed": len(failed),
@@ -181,6 +184,7 @@ def refresh_predictions(
     return {
         "disclaimer": "For educational purposes only. NOT investment advice.",
         "status": "refreshed",
+        "group": group,
         "scan_info": {
             "total_candidates": total_candidates,
             "analyzed": len(results),
@@ -189,31 +193,8 @@ def refresh_predictions(
             "elapsed_seconds": elapsed,
             "sources": sources,
         },
-        "stats": {
-            "strong": sum(1 for r in results if r["total_score"] >= 70),
-            "moderate": sum(1 for r in results if 60 <= r["total_score"] < 70),
-            "weak": sum(1 for r in results if r["total_score"] < 60),
-            "top_score": round(results[0]["total_score"], 1) if results else 0,
-        },
-        "predictions": results[:50],
-    }
-
-
-@app.get("/api/screener-info")
-def screener_info():
-    """Show what screening sources are available and latest scan stats."""
-    return {
-        "sources_description": {
-            "unusual_volume": "FINVIZ: Relative volume > 2x average (거래량 급증)",
-            "gap_up": "FINVIZ: Gap up > 3% (갭업 종목)",
-            "new_high": "FINVIZ: New 52-week high (신고가)",
-            "oversold_bounce": "FINVIZ: RSI < 30 oversold (과매도 반등 후보)",
-            "top_gainers": "FINVIZ: Today's top gainers > 5% (당일 급등)",
-            "high_volatility": "FINVIZ: High weekly volatility > 6% (고변동성)",
-            "yahoo_trending": "Yahoo Finance trending tickers",
-            "default_list": "Curated list of popular US stocks across sectors",
-        },
-        "last_refresh": _last_refresh_info or "No refresh yet",
+        "stats": _make_stats(results),
+        "predictions": results,
     }
 
 

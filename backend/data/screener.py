@@ -32,6 +32,49 @@ DEFAULT_CANDIDATES = [
 ]
 
 
+# S&P 500 시가총액 상위 100 (2024-2025 기준)
+SP500_TOP100 = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "BRK-B", "LLY", "AVGO",
+    "JPM", "TSLA", "UNH", "XOM", "V", "MA", "PG", "COST", "JNJ", "HD",
+    "ABBV", "WMT", "NFLX", "BAC", "CRM", "CVX", "MRK", "KO", "AMD", "PEP",
+    "TMO", "LIN", "ACN", "CSCO", "MCD", "ADBE", "WFC", "ABT", "IBM", "PM",
+    "GE", "ISRG", "CAT", "INTU", "VZ", "QCOM", "TXN", "CMCSA", "NOW", "GS",
+    "PFE", "MS", "RTX", "SPGI", "DHR", "BKNG", "T", "NEE", "AMGN", "LOW",
+    "BLK", "HON", "AMAT", "UNP", "AXP", "SYK", "PLD", "COP", "DE", "SCHW",
+    "MDLZ", "PANW", "VRTX", "ADP", "CB", "FI", "BMY", "LRCX", "BSX", "MMC",
+    "GILD", "ADI", "KLAC", "TMUS", "MU", "SO", "DUK", "SBUX", "INTC", "TJX",
+    "CI", "CME", "SHW", "ICE", "PGR", "REGN", "CL", "SNPS", "CDNS", "ZTS",
+]
+
+# Russell 2000 시가총액 상위 100 (대표적 소형주)
+RUSSELL2000_TOP100 = [
+    "SMCI", "CELH", "ANF", "DUOL", "FN", "ONTO", "BOOT", "LNTH", "CORT", "POWL",
+    "CVLT", "COOP", "EXLS", "NOVT", "MMSI", "CALM", "ENSG", "PIPR", "SFM", "AIT",
+    "HLNE", "CSWI", "VCEL", "ACIW", "ITCI", "GKOS", "HIMS", "OSCR", "AEIS", "CRS",
+    "ALKS", "CRVL", "WDFC", "LBRT", "CVCO", "KNTK", "PLMR", "VRRM", "PAYO", "ROAD",
+    "UFPT", "IPAR", "FTDR", "TGTX", "ADMA", "KRYS", "INTA", "AVAV", "SPSC", "BCC",
+    "SKYW", "HUBG", "INST", "VERX", "RXST", "PCVX", "PRCT", "ARCB", "LRN", "CARG",
+    "JOBY", "FLNC", "RKLB", "IRDM", "ACLS", "FORM", "RVMD", "RAMP", "MHO", "KTOS",
+    "GSHD", "DIOD", "SWX", "PJT", "CATY", "IBOC", "MGEE", "NSIT", "IDCC", "STEP",
+    "RMBS", "VERA", "APPF", "GPI", "CADE", "BRBR", "VIRT", "REZI", "UPST", "ANET",
+    "QLYS", "TENB", "CRDO", "XPEL", "NUVB", "SAIA", "HTLF", "EXPI", "PECO", "INSP",
+]
+
+
+def get_tickers_by_group(group: str):
+    # type: (str) -> tuple
+    """Return (ticker_list, sources_dict) for a given group.
+
+    Groups: 'all', 'sp500', 'russell'
+    """
+    if group == "sp500":
+        return list(SP500_TOP100), {"sp500_top100": len(SP500_TOP100)}
+    elif group == "russell":
+        return list(RUSSELL2000_TOP100), {"russell2000_top100": len(RUSSELL2000_TOP100)}
+    else:
+        return get_candidate_tickers()
+
+
 def _scrape_finviz(filters: str, label: str, max_results: int = 40) -> List[str]:
     """Generic FINVIZ screener scraper with pagination."""
     tickers = []
